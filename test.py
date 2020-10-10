@@ -4,14 +4,14 @@ import os
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
 
-def create_reader(filename):
+def create_reader_yield(filename):
     with open(filename, 'r') as f:
         next(f)
         reader = csv.reader(f)
         yield reader
 
 
-def create_dict_for_table_types(
+def create_dict_for_table_types_and_other(
         reader,
         table_name,
         name_schema,
@@ -101,7 +101,7 @@ def create_table(job_dict):
     )
     cur.execute(
         """CREATE TABLE {}(
-                incident_number INT PRIMARY KEY, 
+                incident_number SERIAL PRIMARY KEY, 
                 offense_code INT, 
                 description VARCHAR({}), 
                 date DATE, 
@@ -113,32 +113,68 @@ def create_table(job_dict):
     conn.close()
 
 
-def insert_data_to_table(reader, cursor, name_table, separator):
-    cursor.copy_from(reader, name_table, separator)
-
-
-def create_group_and_privilege(cursor, table_name, name_group):
-    cursor.execute("""CREATE GROUP %s NOLOGIN;""", (name_group,))
-    cursor.execute("""REVOKE ALL ON %s FROM %s;""", (table_name, name_group,))
-    if name_group == 'readonly':
-        cursor.execute("""GRANT SELECT ON %s TO %s""",
-                       (table_name, name_group,))
-    elif name_group == 'readwrite':
-        cursor.execute(
-            """GRANT SELECT, INSERT, UPDATE ON %s TO %s""",
-            (table_name, name_group,)
-        )
-
-
-def create_user(cursor, user_name, password):
-    cursor.execute(
-        """CREATE USER %s NOSUPERUSER PASSWORD %s;""",
-        (user_name, password,)
+def insert_data_to_table(filename, job_dict, separator):
+    conn = psycopg2.connect(
+        dbname=job_dict['name_database'],
+        user=job_dict['psql_admin'],
+        password=job_dict['psql_passwd']
     )
+    with open(filename, 'r') as f:
+        next(f)
+        cur = conn.cursor()
+        cur.copy_from(f, job_dict['table_name'], separator)
+    conn.commit()
+    conn.close()
 
 
-def add_user_to_group(cursor, user_name, group_name):
-    cursor.execute("""GRANT %s TO %s;""", (group_name, user_name,))
+def create_group_and_privilege(job_dict, table_name, name_group):
+    conn = psycopg2.connect(
+        dbname=job_dict['name_database'],
+        user=job_dict['psql_admin'],
+        password=job_dict['psql_passwd']
+    )
+    cur = conn.cursor()
+    cur.execute("""CREATE GROUP {} NOLOGIN;""".format(name_group))
+    cur.execute("""REVOKE ALL ON {} FROM {};""".format(
+        table_name, name_group)
+    )
+    if name_group == 'readonly':
+        cur.execute("""GRANT SELECT ON {} TO {}""".format(
+            table_name, name_group)
+        )
+    elif name_group == 'readwrite':
+        cur.execute("""GRANT SELECT, INSERT, UPDATE ON {} TO {}""".format(
+            table_name, name_group)
+        )
+    conn.commit()
+    conn.close()
+
+
+def create_user(job_dict, user_name, password):
+    conn = psycopg2.connect(
+        dbname=job_dict['name_database'],
+        user=job_dict['psql_admin'],
+        password=job_dict['psql_passwd']
+    )
+    cur = conn.cursor()
+    cur.execute(
+        """CREATE USER {} NOSUPERUSER PASSWORD '{}';""".format(
+            user_name, password)
+    )
+    conn.commit()
+    conn.close()
+
+
+def add_user_to_group(job_dict, user_name, group_name):
+    conn = psycopg2.connect(
+        dbname=job_dict['name_database'],
+        user=job_dict['psql_admin'],
+        password=job_dict['psql_passwd']
+    )
+    cur = conn.cursor()
+    cur.execute("""GRANT {} TO {};""".format(group_name, user_name))
+    conn.commit()
+    conn.close()
 
 
 def main():
@@ -150,8 +186,8 @@ def main():
     username2 = 'data_scientist1'
     group_name1 = 'readonly'
     group_name2 = 'readwrite'
-    reader_generator = create_reader(name_file)
-    dict_for_job = create_dict_for_table_types(
+    reader_generator = create_reader_yield(name_file)
+    dict_for_job = create_dict_for_table_types_and_other(
         reader_generator,
         name_table,
         name_schema,
@@ -165,6 +201,29 @@ def main():
     create_db(dict_for_job)
     create_schema(dict_for_job)
     create_table(dict_for_job)
+    insert_data_to_table(name_file, dict_for_job, ',')
+    create_group_and_privilege(
+        dict_for_job,
+        dict_for_job['table_name'],
+        dict_for_job['group_name1']
+    )
+    create_group_and_privilege(
+        dict_for_job,
+        dict_for_job['table_name'],
+        dict_for_job['group_name2']
+    )
+    create_user(dict_for_job, dict_for_job['username1'], '1234509876')
+    create_user(dict_for_job, dict_for_job['username2'], '1234567890')
+    add_user_to_group(
+        dict_for_job,
+        dict_for_job['username1'],
+        dict_for_job['group_name1']
+    )
+    add_user_to_group(
+        dict_for_job,
+        dict_for_job['username2'],
+        dict_for_job['group_name2']
+    )
 
 
 if __name__ == '__main__':
