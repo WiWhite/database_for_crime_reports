@@ -1,7 +1,6 @@
 import psycopg2
 import csv
 import os
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
 
 def create_reader_yield(filename):
@@ -75,7 +74,7 @@ def create_db(job_dict):
         user=job_dict['psql_admin'],
         password=job_dict['psql_passwd']
     )
-    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+    conn.autocommit = True
     cur = conn.cursor()
     cur.execute('CREATE DATABASE {}'.format(job_dict['name_database']))
     conn.commit()
