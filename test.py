@@ -2,6 +2,8 @@ import psycopg2
 import csv
 import os
 
+from psycopg2.extensions import AsIs
+
 
 def create_reader_yield(filename):
     with open(filename, 'r') as f:
@@ -62,7 +64,7 @@ def create_schema(job_dict):
     )
     cur = conn.cursor()
     cur.execute(
-        'CREATE SCHEMA IF NOT EXISTS {}'.format(job_dict['name_schema'])
+        'CREATE SCHEMA IF NOT EXISTS %s', (AsIs(job_dict['name_schema']),)
     )
     conn.commit()
     conn.close()
@@ -75,8 +77,9 @@ def create_db(job_dict):
         password=job_dict['psql_passwd']
     )
     conn.autocommit = True
+
     cur = conn.cursor()
-    cur.execute('CREATE DATABASE {}'.format(job_dict['name_database']))
+    cur.execute('CREATE DATABASE %s', (AsIs(job_dict['name_database']),))
     conn.commit()
     conn.close()
 
@@ -99,15 +102,15 @@ def create_table(job_dict):
 
     )
     cur.execute(
-        """CREATE TABLE {}(
+        """CREATE TABLE %s(
                 incident_number SERIAL PRIMARY KEY, 
                 offense_code INT, 
-                description VARCHAR({}), 
+                description VARCHAR(%s), 
                 date DATE, 
-                day_of_the_week	VARCHAR({}), 
-                lat NUMERIC({}, {}), 
-                long NUMERIC({}, {}))""".format(*tuple_for_create_table)
-    )
+                day_of_the_week	VARCHAR(%s), 
+                lat NUMERIC(%s, %s), 
+                long NUMERIC(%s, %s))""", [
+            AsIs(param) for param in tuple_for_create_table])
     conn.commit()
     conn.close()
 
@@ -133,18 +136,21 @@ def create_group_and_privilege(job_dict, table_name, name_group):
         password=job_dict['psql_passwd']
     )
     cur = conn.cursor()
-    cur.execute("""CREATE GROUP {} NOLOGIN;""".format(name_group))
-    cur.execute("""REVOKE ALL ON {} FROM {};""".format(
-        table_name, name_group)
-    )
+    cur.execute("""CREATE GROUP %s NOLOGIN;""", (AsIs(name_group),))
+    cur.execute("""REVOKE ALL ON %s FROM %s;""", (
+        AsIs(table_name),
+        AsIs(name_group),
+    ))
     if name_group == 'readonly':
-        cur.execute("""GRANT SELECT ON {} TO {}""".format(
-            table_name, name_group)
-        )
+        cur.execute("""GRANT SELECT ON %s TO %s""", (
+            AsIs(table_name),
+            AsIs(name_group),
+        ))
     elif name_group == 'readwrite':
-        cur.execute("""GRANT SELECT, INSERT, UPDATE ON {} TO {}""".format(
-            table_name, name_group)
-        )
+        cur.execute("""GRANT SELECT, INSERT, UPDATE ON %s TO %s""", (
+            AsIs(table_name),
+            AsIs(name_group),
+        ))
     conn.commit()
     conn.close()
 
@@ -156,10 +162,10 @@ def create_user(job_dict, user_name, password):
         password=job_dict['psql_passwd']
     )
     cur = conn.cursor()
-    cur.execute(
-        """CREATE USER {} NOSUPERUSER PASSWORD '{}';""".format(
-            user_name, password)
-    )
+    cur.execute("""CREATE USER %s NOSUPERUSER PASSWORD '%s';""", (
+        AsIs(user_name),
+        AsIs(password),
+    ))
     conn.commit()
     conn.close()
 
@@ -171,7 +177,7 @@ def add_user_to_group(job_dict, user_name, group_name):
         password=job_dict['psql_passwd']
     )
     cur = conn.cursor()
-    cur.execute("""GRANT {} TO {};""".format(group_name, user_name))
+    cur.execute("""GRANT %s TO %s;""", (AsIs(group_name), AsIs(user_name),))
     conn.commit()
     conn.close()
 
